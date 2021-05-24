@@ -1,29 +1,54 @@
 package nfa
 
-// A nondeterministic Finite Automaton (NFA) consists of states,
-// symbols in an alphabet, and a transition function.
+import (
+	"sync"
+)
 
-// A state in the NFA is represented as an unsigned integer.
 type state uint
+type TransitionFunction func(st state, act rune) []state
 
-// Given the current state and a symbol, the transition function
-// of an NFA returns the set of next states the NFA can transition to
-// on reading the given symbol.
-// This set of next states could be empty.
-type TransitionFunction func(st state, sym rune) []state
+// look for true results in the channel
+func TrueInResult(resultChannel chan bool) bool{
+	for r := range resultChannel {
+		if r {
+			return true
+		}
+	}
+	return false
+}
 
-// Reachable returns true if there exists a sequence of transitions
-// from `transitions` such that if the NFA starts at the start state
-// `start` it would reach the final state `final` after reading the
-// entire sequence of symbols `input`; Reachable returns false otherwise.
-func Reachable(
-	// `transitions` tells us what our NFA looks like
-	transitions TransitionFunction,
-	// `start` and `final` tell us where to start, and where we want to end up
-	start, final state,
-	// `input` is a (possible empty) list of symbols to apply.
-	input []rune,
-) bool {
-	// TODO
-	panic("TODO: implement this!")
+func ReachableHelper(transitions TransitionFunction, start, final state, input []rune, wg *sync.WaitGroup, resultChannel chan bool) {
+	if len(input) == 0 {
+		// put true in the channel if you found a path (if not, default is false)
+		if start == final {
+			resultChannel <- true
+		}
+	} else {
+		// everything below is the same except wait group has to be updated as to not lock
+		nextStates := transitions(start, input[0])
+		for _, state := range nextStates {
+			wg.Add(1)
+			go ReachableHelper(transitions, state, final, input[1:len(input)], wg, resultChannel)
+		}
+	}
+	wg.Done()
+}
+
+// this one is like the main function: call first thread and wait for return 
+func Reachable(transitions TransitionFunction, start, final state, input []rune, ) bool {
+	// make a waitgroup to keep track of where the return values should be generated 
+	var wg sync.WaitGroup
+
+	// make a channel of size 10,000 
+	resultChannel := make(chan bool, 10000)
+
+	wg.Add(1)
+
+	ReachableHelper(transitions, start, final, input, &wg, resultChannel)
+
+	wg.Wait()
+	close(resultChannel)
+
+	// if there are any trues in result channel
+	return (TrueInResult(resultChannel))
 }
